@@ -1,34 +1,37 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
-const cron = require('node-cron');
-const express = require('express');
+const makeWASocket = require('@whiskeysockets/baileys').default
+const { useMultiFileAuthState } = require('@whiskeysockets/baileys')
+const cron = require('node-cron')
+const express = require('express')
+const fs = require('fs')
 
-const app = express();
-app.get('/', (req,res) => res.send('Bot is alive!'));
-app.listen(10000, () => console.log('Web server running'));
+const app = express()
+app.get('/', (req,res) => res.send('Bot alive! ABSEN NYAWA AMERTA'))
+app.listen(10000)
 
-const GROUP_NAME = 'KOPERASI BUAH SEHAT BERMARTABAT';
-const MESSAGE = '🚨 Reminder ABSEN NYAWA AMERTA 🚨!!!\n\nWaktunya absen ya teman-teman! Jangan lupa isi absennya sekarang.';
+const GROUP_NAME = 'KOPERASI BUAH SEHAT BERMARTABAT'
+const MESSAGE = '🚨 Reminder ABSEN NYAWA AMERTA 🚨!!!\n\nWaktunya absen ya teman-teman! Jangan lupa isi absennya sekarang.'
 
-const client = new Client({
-  authStrategy: new LocalAuth(),
-  puppeteer: { args: ['--no-sandbox', '--disable-setuid-sandbox'] }
-});
+async function startBot(){
+  const { state, saveCreds } = await useMultiFileAuthState('auth')
+  const sock = makeWASocket({ auth: state, printQRInTerminal: true })
 
-client.on('qr', qr => {
-  qrcode.generate(qr, {small: true});
-  console.log('QR:', qr); // also log raw QR to see in Render logs
-});
+  sock.ev.on('creds.update', saveCreds)
 
-client.on('ready', () => console.log('✅ Bot ready! Will send daily at 19:00 WIB'));
+  sock.ev.on('connection.update', async ({connection}) => {
+    if(connection === 'open') console.log('✅ Connected!')
+  })
 
-client.initialize();
+  // Daily 7pm WIB
+  cron.schedule('0 19 * * *', async () => {
+    try {
+      const groups = await sock.groupFetchAllParticipating()
+      const groupId = Object.keys(groups).find(id => groups[id].subject === GROUP_NAME)
+      if(groupId){
+        await sock.sendMessage(groupId, { text: MESSAGE })
+        console.log('Sent reminder!')
+      }
+    } catch(e){ console.log(e) }
+  }, { timezone: "Asia/Jakarta" })
+}
 
-cron.schedule('0 19 * * *', async () => {
-  const chats = await client.getChats();
-  const group = chats.find(c => c.isGroup && c.name === GROUP_NAME);
-  if(group){
-    await client.sendMessage(group.id._serialized, MESSAGE);
-    console.log('Reminder sent!');
-  }
-}, { timezone: "Asia/Jakarta" });
+startBot()
